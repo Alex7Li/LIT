@@ -1,0 +1,1 @@
+10/21/2020 23:32:25 - INFO - __main__ - Namespace(debug=False, output_dir='out', type='train')

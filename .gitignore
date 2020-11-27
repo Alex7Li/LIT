@@ -1,3 +1,5 @@
 narrativeqa/tmp/*
 .idea
 node_modules
+out
+.cache

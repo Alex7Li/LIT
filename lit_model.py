@@ -275,6 +275,8 @@ class EntityMemory(tf.keras.layers.Layer):
 
             print("Minimize time")
             gradients = tape.gradient(entity_loss, trainable_variables)
+            # Bug - these are None when there are trainable variables. Perhaps there's a non-differentiable
+            # function hiding somewhere above?
             print(gradients)
             optimizer.apply_gradients(zip(gradients, trainable_variables))
             print("We did it boys")
@@ -392,7 +394,6 @@ class LIT(TFDistilBertPreTrainedModel, TFQuestionAnsweringLoss):
             start_positions = inputs.get("start_positions", start_positions)
             end_positions = inputs.get("end_positions", start_positions)
             entity_matrix = inputs.get("entity_matrix", entity_matrix)
-        print("opt", optimizer)
         distilbert_output = self.distilbert(
             inputs,
             attention_mask=attention_mask,

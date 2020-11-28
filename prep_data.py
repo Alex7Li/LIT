@@ -23,6 +23,7 @@ def functions_tokenizer(tokenizer):
             [sup.lower() + tokenizer.sep_token + q.lower() for sup, q in zip(dataset['supports'], dataset['query'])],
             return_tensors='tf', return_token_type_ids=True, padding=True, truncation=False)
         return encodings
+
     return update, get_encodings_concat
 
 
@@ -83,10 +84,12 @@ def prepare_with_tokenizer_and_encodings(tokenizer, get_encoding):
         end = start + len(example['answer']) - 1
 
         # We only predict on the last 512 tokens, so let's adjust the start and end positions to be
-        # in that window
+        # in that window.
         encoding_length = len(encoding.ids)
         start_token_ind = encoding.char_to_token(start) + window_size - encoding_length - 1
         end_token_ind = encoding.char_to_token(end) + window_size - encoding_length - 1
+        # The padding side is left and we search from the start of the supports. Since there's never more
+        # than 512 tokens of support, this should always work
         assert start_token_ind >= 0
         return start_token_ind, end_token_ind
 
@@ -120,8 +123,8 @@ def prepare_with_tokenizer_and_encodings(tokenizer, get_encoding):
 
     def prepare(example):
         encoding = get_encoding(example)
-        example['start_positions'], example['end_positions'] = update_st_end(example, encoding, tokenizer)
-        assert example['start_positions'] != None
+        example['start_positions'], example['end_positions'] = update_st_end(example, encoding)
+        assert example['start_positions'] is not None
         example['entity_ends'], example['to_embed_ind'] = find_corefs(example, encoding)
         return example
     return prepare

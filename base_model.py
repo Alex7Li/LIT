@@ -32,6 +32,8 @@ from transformers.modeling_tf_utils import (
 )
 from transformers.tokenization_utils import BatchEncoding
 
+from helpers import dict_subset
+
 
 class TFDistilBertMainLayer(tf.keras.layers.Layer):
     config_class = DistilBertConfig
@@ -79,7 +81,6 @@ class TFDistilBertMainLayer(tf.keras.layers.Layer):
         output_hidden_states = inputs.get("output_hidden_states", output_hidden_states)
         return_dict = inputs.get("return_dict", return_dict)
         assert len(inputs) <= 7, "Too many inputs."
-        print(input_ids, head_mask, inputs_embeds, output_attentions, output_hidden_states, return_dict)
 
         output_attentions = output_attentions if output_attentions is not None else self.output_attentions
         output_hidden_states = output_hidden_states if output_hidden_states is not None else self.output_hidden_states

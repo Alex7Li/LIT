@@ -22,6 +22,8 @@ if __name__ == "__main__":
                              "Type 'train' for training, 'eval' for evaluating")
     parser.add_argument("--output_dir", default="out", type=str,
                         help="The output directory where the model checkpoints will be written.")
+    parser.add_argument("--model_name", default="quangaroo_saved_model", type=str,
+                        help="The name the model will be saved/loaded under.")
     parser.add_argument("--batch_size", default=64, type=int,
                         help="The batch size to use while training the model."
                              "Set it to be as big as possible without crashing anything!")
@@ -46,16 +48,21 @@ if __name__ == "__main__":
     # Load in the qangaroo dataset
     train_dataset = load_dataset('qangaroo', 'wikihop', split='train')
     val_dataset = load_dataset('qangaroo', 'wikihop', split='validation')
-    if args.debug:
-        val_dataset = val_dataset.filter(lambda _, ind: ind < 10, with_indices=True)
-        train_dataset = train_dataset.filter(lambda _, ind: ind < 10, with_indices=True)
 
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+    logger.info(f"Debugging: {args.debug}")
+    if args.debug:
+        val_dataset = val_dataset.filter(lambda _, ind: ind < 50, with_indices=True)
+        train_dataset = train_dataset.filter(lambda _, ind: ind < 50, with_indices=True)
+
+    logger.info("Tokenizing")
+    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased', padding_side='left')
     update, get_encodings_concat = functions_tokenizer(tokenizer)
 
+    logger.info("Cleaning data")
     train_dataset = train_dataset.map(update)
     val_dataset = val_dataset.map(update)
 
+    logger.info("Getting encodings for data")
     train_encodings_concat = get_encodings_concat(train_dataset)
     val_encodings_concat = get_encodings_concat(val_dataset)
 
@@ -70,7 +77,7 @@ if __name__ == "__main__":
         else:
             raise KeyError(f"didn't expect the data set type to be {train}")
 
-
+    logger.info("Augmenting data by labeling entities")
     prepare = prepare_with_tokenizer_and_encodings(tokenizer, get_encoding)
     train_dataset = train_dataset.map(prepare)
     val_dataset = val_dataset.map(prepare)
@@ -91,7 +98,7 @@ if __name__ == "__main__":
         })
         return encodings
 
-
+    logger.info("Getting final encodings")
     train_encodings = get_encodings(train_dataset)
     val_encodings = get_encodings(val_dataset)
     # Recalculate the encodings and store everything
@@ -101,6 +108,7 @@ if __name__ == "__main__":
     BASE_KEYS = ['input_ids', 'attention_mask']
     LIT_KEYS = ['input_ids', 'attention_mask', 'entity_ends', 'to_embed_ind']
 
+    logger.info("Creating final datasets")
     train_dataset_for_model = tf.data.Dataset.from_tensor_slices((
         {key: train_encodings[key] for key in LIT_KEYS},
         {key: train_encodings[key] for key in ['start_positions', 'end_positions']}
@@ -116,11 +124,22 @@ if __name__ == "__main__":
     val_dataset_for_model = val_dataset_for_model.map(lambda x, y: (x, (y['start_positions'], y['end_positions'])))
 
     if args.model_to_use == 'base':
-        model = TFDistilBertForQuestionAnswering.from_pretrained('distilbert-base-uncased', return_dict=True)
+        try:
+            logger.info(f"Loaded the model at {args.model_name}")
+            model = TFDistilBertForQuestionAnswering.from_pretrained(args.model_name, return_dict=True)
+        except: # There was no pretrained model with the name
+            logger.info("Loaded the base model")
+            model = TFDistilBertForQuestionAnswering.from_pretrained('distilbert-base-uncased', return_dict=True)
     elif args.model_to_use == 'lit':
-        model = LIT.from_pretrained('distilbert-base-uncased', return_dict=True)
+        try:
+            logger.info(f"Loaded the model at {args.model_name}")
+            model = LIT.from_pretrained(args.model_name, return_dict=True)
+        except:
+            logger.info("Loaded the base model")
+            model = LIT.from_pretrained('distilbert-base-uncased', return_dict=True)
     else:
-        raise NotImplementedError
+        # Actually 'lit' doesn't work either ☹
+        raise NotImplementedError("model was neither 'base' nor 'lit'.")
 
     loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     model.distilbert.return_dict = False  # if using 🤗 Transformers >3.02, make sure outputs are tuples
@@ -132,10 +151,8 @@ if __name__ == "__main__":
     model.fit(train_dataset_for_model.shuffle(1000).batch(batch_size), epochs=1,
               validation_data=val_dataset_for_model.batch(batch_size), validation_steps=4)
     model.distilbert.return_dict = True
-    print("Saving")
-    model.save_pretrained('distilbert-quangaroo')
-
-    window_size = 512
+    logger.info("Saving")
+    model.save_pretrained(args.model_name)
 
     def best_answer(start_logits, end_logits, data, encoding):
         answers = [answer.lower() for answer in data['candidates']]
@@ -143,7 +160,7 @@ if __name__ == "__main__":
         best_answer_str = ''
         best_answer_score = -100000
         encoding_length = len(encoding.ids)
-        offset = window_size - encoding_length - 1
+        offset = 512 - encoding_length - 1
         for answer in answers:
             start = text.find(answer, len(data['supports']))
             while start != -1:
@@ -156,7 +173,7 @@ if __name__ == "__main__":
                 if score > best_answer_score:
                     best_answer_score = score
                     best_answer_str = answer
-                # Check the next occurance of this answer
+                # Check the next occurrence of this answer
                 start = text.find(answer, start + 1)
         return best_answer_str
 
@@ -174,9 +191,9 @@ if __name__ == "__main__":
     # Predict stuff with the model
     pred_train = model.predict(train_dataset_for_model.batch(batch_size))
     score_train = score_prediction(pred_train, train_encodings_concat, train_dataset)
-    print(f"Train Error: {score_train}")
+    logger.info(f"Train Error: {score_train}")
 
     pred_val = model.predict(val_dataset_for_model.batch(batch_size))
     score_test = score_prediction(pred_val, val_encodings_concat, val_dataset)
-    print(f"Test Error: {score_test}")
+    logger.info(f"Test Error: {score_test}")
 

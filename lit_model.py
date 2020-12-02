@@ -24,6 +24,7 @@ class TFTransformer(tf.keras.layers.Layer):
 
         self.layer = [TFTransformerBlock(config, name="layer_._{}".format(i)) for i in range(config.n_layers)]
         self.entity_memory = EntityMemory(config, name="EntityMemory")
+        self.layer_norm = tf.keras.layers.LayerNormalization(config, name="LayerNorm")
 
     def call(self, x, attn_mask, head_mask, output_attentions, output_hidden_states,
              return_dict, entity_matrix, entity_ends, to_embed_ind, training=False, do_all=True, optimizer=None):
@@ -63,16 +64,17 @@ class TFTransformer(tf.keras.layers.Layer):
             else:
                 assert len(layer_outputs) == 1, f"Incorrect number of outputs {len(layer_outputs)} instead of 1"
 
-            if len(self.layer) // 2 == i and entity_ends != None:
+            if len(self.layer) // 2 == i and entity_ends is not None:
                 # It's time for the entity memory layer, the main contribution of this repo!
                 outputs, entity_matrix = self.entity_memory(hidden_state, entity_matrix,
                                                             entity_ends, to_embed_ind, training=training,
                                                             optimizer=optimizer)
                 hidden_state += outputs
+                hidden_state = self.layer_norm(hidden_state)
                 if not do_all:
                     print("Exit early!")
                     # There's no need to go through the rest of the hidden layers
-                    break;
+                    break
                 else:
                     print("Predicted!")
 
